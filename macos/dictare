@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# Dictation toggle for macOS.
+#   dictare toggle   — start recording, or stop + transcribe + paste
+#   dictare start | stop | cancel | status | last | history [n] | today | selftest
+set -uo pipefail
+
+BASE="$HOME/.local/share/dictare"
+PY="$BASE/venv/bin/python"
+PORT="${DICTARE_PORT:-8910}"
+RUN="${TMPDIR:-/tmp}/dictare-$(id -u)"
+PIDFILE="$RUN/rec.pid"
+WAV="$RUN/rec.wav"
+LASTFILE="$RUN/last.txt"
+HISTORY="$BASE/history.jsonl"
+TRANSCRIPTS="$BASE/transcripts"
+AUDIO_ARCHIVE="$BASE/audio"
+MAX_SECONDS="${DICTARE_MAX_SECONDS:-180}"
+KEEP_AUDIO="${DICTARE_KEEP_AUDIO:-0}"
+
+mkdir -p "$RUN" "$TRANSCRIPTS"
+
+notify() { # notify <title> <body>
+  local title body
+  title="$(printf '%s' "$1" | tr -d '"\\')"
+  body="$(printf '%s' "${2:-}" | tr -d '"\\')"
+  osascript -e "display notification \"$body\" with title \"$title\"" >/dev/null 2>&1 || true
+}
+
+recording() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; }
+
+start_recording() {
+  rm -f "$WAV"
+  "$PY" "$BASE/recorder.py" "$WAV" ${DICTARE_INPUT_DEVICE:+--device "$DICTARE_INPUT_DEVICE"} &
+  local pid=$!
+  echo "$pid" > "$PIDFILE"
+  notify "🔴 Înregistrez…" "Dă drumul tastei ca să oprești."
+  ( sleep "$MAX_SECONDS"
+    [ "$(cat "$PIDFILE" 2>/dev/null)" = "$pid" ] && "$0" stop >/dev/null 2>&1
+  ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+}
+
+copy_to_clipboard() { printf '%s' "$1" | pbcopy; }
+
+paste_it() {
+  # Requires Accessibility permission for whatever app launches this.
+  sleep 0.15
+  osascript -e 'tell application "System Events" to keystroke "v" using command down' \
+    >/dev/null 2>&1
+}
+
+archive() { # archive <text> <daemon-json>
+  local day; day="$(date +%Y-%m-%d)"
+  DICT_TEXT="$1" DICT_RESP="$2" DICT_TS="$(date +%Y-%m-%dT%H:%M:%S%z)" \
+  "$PY" - "$HISTORY" <<'PY'
+import json, os, sys
+resp = {}
+try:
+    resp = json.loads(os.environ.get("DICT_RESP") or "{}")
+except ValueError:
+    pass
+row = {"ts": os.environ["DICT_TS"], "text": os.environ["DICT_TEXT"],
+       "audio": resp.get("audio", 0), "took": resp.get("took", 0)}
+with open(sys.argv[1], "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+PY
+  printf '### %s\n%s\n\n' "$(date +%H:%M:%S)" "$1" >> "$TRANSCRIPTS/$day.md"
+  if [ "$KEEP_AUDIO" = "1" ]; then
+    mkdir -p "$AUDIO_ARCHIVE"
+    cp -f "$WAV" "$AUDIO_ARCHIVE/$(date +%Y-%m-%d_%H-%M-%S).wav"
+  fi
+}
+
+stop_and_transcribe() {
+  local pid; pid="$(cat "$PIDFILE" 2>/dev/null)"
+  kill -TERM "$pid" 2>/dev/null
+  local i=0
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i+1)); done
+  kill -KILL "$pid" 2>/dev/null
+  rm -f "$PIDFILE"
+
+  if [ ! -s "$WAV" ]; then notify "Dictare" "Nu s-a înregistrat nimic."; exit 0; fi
+
+  notify "⏳ Transcriu…" ""
+  local resp text
+  resp="$(curl -s --max-time 300 -X POST --data-binary "@$WAV" \
+          "http://127.0.0.1:$PORT/transcribe")"
+  if [ -z "$resp" ]; then
+    notify "Dictare" "Daemonul nu răspunde. launchctl list | grep dictare"
+    exit 1
+  fi
+  text="$(printf '%s' "$resp" | "$PY" -c \
+    'import json,sys; print(json.load(sys.stdin).get("text",""), end="")')"
+  if [ -z "$text" ]; then notify "Dictare" "Nu am înțeles nimic."; exit 0; fi
+
+  printf '%s' "$text" > "$LASTFILE"
+  archive "$text" "$resp"
+  copy_to_clipboard "$text"
+  if paste_it; then notify "✅ Dictat" "${text:0:120}"
+  else notify "📋 Copiat — apasă Cmd+V" "${text:0:120}"; fi
+}
+
+selftest() {
+  local fail=0
+  chk() { local label="$1"; shift
+    if "$@" >/dev/null 2>&1; then printf '  OK    %s\n' "$label"
+    else printf '  FAIL  %s\n' "$label"; fail=1; fi; }
+  echo "dictare selftest (macOS)"
+  chk "whisper daemon răspunde" curl -s --max-time 3 "http://127.0.0.1:$PORT/health"
+  chk "venv python există"      test -x "$PY"
+  chk "recorder.py există"      test -f "$BASE/recorder.py"
+  chk "sounddevice importabil"  "$PY" -c "import sounddevice"
+  chk "pynput importabil"       "$PY" -c "import pynput"
+  chk "pbcopy/pbpaste"          bash -c 'printf ăîșț | pbcopy && [ "$(pbpaste)" = "ăîșț" ]'
+  chk "osascript disponibil"    command -v osascript
+  echo
+  [ "$fail" -ne 0 ] && { echo "Ceva e picat — vezi README.md."; return 1; }
+
+  local marker="DICTARE_TEST_ăîșț_$(date +%H%M%S)"
+  printf '%s' "$marker" | pbcopy
+  echo "Dă click într-un câmp de text ACUM."
+  notify "Test paste în 5s" "Click într-un câmp de text"
+  for i in 5 4 3 2 1; do printf '\r  injectez Cmd+V în %ss… ' "$i"; sleep 1; done
+  printf '\r  injectez acum…              \n'
+  paste_it
+  echo
+  echo "Ar fi trebuit să apară:  $marker"
+  echo "Dacă nu a apărut: System Settings > Privacy & Security > Accessibility."
+}
+
+case "${1:-toggle}" in
+  toggle) if recording; then stop_and_transcribe; else start_recording; fi ;;
+  start)  recording || start_recording ;;
+  stop)   recording && stop_and_transcribe ;;
+  cancel) if recording; then kill -KILL "$(cat "$PIDFILE")" 2>/dev/null
+            rm -f "$PIDFILE" "$WAV"; notify "Dictare" "Anulat."; fi ;;
+  status) if recording; then echo "recording"
+          else curl -s --max-time 3 "http://127.0.0.1:$PORT/health" || echo "daemon down"; fi ;;
+  last)   cat "$LASTFILE" 2>/dev/null ;;
+  history) "$PY" -c 'import json,sys
+rows=[json.loads(l) for l in open(sys.argv[1],encoding="utf-8") if l.strip()]
+for r in rows[-int(sys.argv[2]):]: print(r["ts"], "", r["text"])' "$HISTORY" "${2:-20}" 2>/dev/null ;;
+  today)  cat "$TRANSCRIPTS/$(date +%Y-%m-%d).md" 2>/dev/null ;;
+  selftest) selftest ;;
+  *) echo "usage: dictare {toggle|start|stop|cancel|status|last|history [n]|today|selftest}" >&2; exit 2 ;;
+esac

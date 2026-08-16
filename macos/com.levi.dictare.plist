@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.levi.dictare</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/.local/share/dictare/venv/bin/python</string>
+    <string>__HOME__/.local/share/dictare/whisperd.py</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DICTARE_MODEL</key><string>large-v3-turbo</string>
+    <key>DICTARE_LANG</key><string>ro</string>
+    <key>DICTARE_BEAM</key><string>5</string>
+    <key>DICTARE_PORT</key><string>8910</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>__HOME__/.local/share/dictare/whisperd.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/.local/share/dictare/whisperd.log</string>
+</dict>
+</plist>

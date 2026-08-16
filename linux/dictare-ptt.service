@@ -1,0 +1,12 @@
+[Unit]
+Description=Dictare push-to-talk — hold Right Ctrl to record
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/share/dictare/pttd.py --key 97 --hold-ms 250
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
