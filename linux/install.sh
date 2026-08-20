@@ -44,6 +44,30 @@ WhisperModel("large-v3-turbo", device="cpu", compute_type="int8")
 print("model ready")
 PY
 
+echo "==> GNOME hotkeys (Super+X toggle, Super+R redo)"
+# Merge into whatever custom keybindings already exist rather than replacing them.
+KEYS_SCHEMA=org.gnome.settings-daemon.plugins.media-keys
+bind_key() { # bind_key <slug> <accelerator> <dictare-subcommand> <name>
+  local path="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/$1/"
+  local current; current="$(gsettings get "$KEYS_SCHEMA" custom-keybindings)"
+  case "$current" in
+    *"$path"*) : ;;
+    "@as []"|"[]") gsettings set "$KEYS_SCHEMA" custom-keybindings "['$path']" ;;
+    *) gsettings set "$KEYS_SCHEMA" custom-keybindings \
+         "$(printf '%s' "$current" | sed "s|]$|, '$path']|")" ;;
+  esac
+  local sk="$KEYS_SCHEMA.custom-keybinding:$path"
+  gsettings set "$sk" name "$4"
+  gsettings set "$sk" command "$BIN/dictare $3"
+  gsettings set "$sk" binding "$2"
+}
+if command -v gsettings >/dev/null; then
+  bind_key dictare      '<Super>x' toggle "Dictare (voice to text)"
+  bind_key dictare-redo '<Super>r' redo   "Dictare redo (re-transcribe last recording)"
+else
+  echo "   gsettings missing — bind the hotkeys yourself (not a GNOME session?)"
+fi
+
 echo "==> services"
 systemctl --user daemon-reload
 systemctl --user enable --now dictare.service

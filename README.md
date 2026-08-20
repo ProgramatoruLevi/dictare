@@ -27,6 +27,16 @@ permissions macOS asks for (below).
 
 Hold **Right Ctrl** (Linux) or **Right Command** (macOS), speak, release.
 
+| Key | Does |
+|---|---|
+| Right Ctrl / Right Cmd (hold) | record while held |
+| `Super`+`X` | toggle recording (start / stop) |
+| `Super`+`R` | redo — re-transcribe the last recording |
+
+The Linux installer binds `Super`+`X` and `Super`+`R` via gsettings, merging
+into any custom keybindings you already have. On macOS, bind them yourself in
+System Settings → Keyboard → Shortcuts if you want them.
+
 ```bash
 dictare selftest       # check every component, then test the paste
 dictare today          # today's transcripts
