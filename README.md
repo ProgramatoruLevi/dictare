@@ -32,6 +32,7 @@ dictare selftest       # check every component, then test the paste
 dictare today          # today's transcripts
 dictare history 20     # last 20, with timestamps
 dictare last           # the last one
+dictare redo           # re-transcribe the last recording (e.g. after a cancel)
 ```
 
 Every dictation is saved three ways: clipboard, `history.jsonl`
@@ -51,9 +52,13 @@ The model stays loaded in a small local HTTP daemon, so a dictation costs only
 inference — no 2-second model load every time. On a 24-core desktop CPU,
 22.8 s of audio transcribes in 2.4 s (~9× real time), with no GPU.
 
-Holding the trigger **alone** past 250 ms is what starts a recording. If any
-other key goes down mid-gesture the recording is abandoned, so `Ctrl+C` and
-friends keep working normally.
+Holding the trigger **alone** past 250 ms is what starts a recording. If a
+**real** key goes down mid-gesture the recording is abandoned, so `Ctrl+C` and
+friends keep working normally — but modifiers (Shift, Alt, Meta, Caps) are
+ignored, since brushing Shift mid-sentence should not cost you a dictation.
+
+An abandoned recording is kept, not deleted: `dictare redo` re-transcribes the
+last recording without making you say it again.
 
 ## Accuracy on mixed-language speech
 

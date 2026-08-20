@@ -17,6 +17,17 @@ import time
 
 DICTARE = os.path.expanduser("~/.local/bin/dictare")
 
+# Modifiers never abort a gesture — brushing Shift mid-hold must not throw the
+# recording away. Only real keys mean "this was a shortcut, not a dictation".
+MODIFIER_NAMES = {
+    "shift", "shift_r", "shift_l", "ctrl", "ctrl_r", "ctrl_l",
+    "alt", "alt_r", "alt_l", "alt_gr", "cmd", "cmd_r", "cmd_l", "caps_lock",
+}
+
+
+def is_modifier(key):
+    return getattr(key, "name", None) in MODIFIER_NAMES
+
 
 def log(msg):
     print(f"[pttd] {msg}", flush=True)
@@ -108,7 +119,7 @@ def main():
     def on_press(key):
         if key == trigger:
             ptt.trigger_down()
-        else:
+        elif not is_modifier(key):
             ptt.other_key_down()
 
     def on_release(key):

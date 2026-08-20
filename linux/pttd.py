@@ -25,6 +25,16 @@ EVENT_SIZE = struct.calcsize(EVENT_FMT)
 EV_KEY = 0x01
 KEY_RIGHTCTRL = 97
 
+# Modifiers never abort a gesture. Catching Shift here was a real bug: holding
+# the trigger and brushing Shift silently threw away a finished recording.
+MODIFIERS = {
+    29, 97,    # ctrl
+    42, 54,    # shift
+    56, 100,   # alt
+    125, 126,  # meta
+    58, 464,   # capslock, fn
+}
+
 DICTARE = os.path.expanduser("~/.local/bin/dictare")
 
 
@@ -155,8 +165,9 @@ def main():
                     if recording:
                         recording = False
                         act("stop")
-            elif value == 1 and (pending_since is not None or recording):
-                # Another key went down mid-gesture: this was a shortcut.
+            elif (value == 1 and code not in MODIFIERS
+                  and (pending_since is not None or recording)):
+                # A real key went down mid-gesture: this was a shortcut.
                 pending_since = None
                 if recording:
                     recording = False

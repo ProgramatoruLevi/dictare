@@ -10,6 +10,7 @@ PORT="${DICTARE_PORT:-8910}"
 RUN="${TMPDIR:-/tmp}/dictare-$(id -u)"
 PIDFILE="$RUN/rec.pid"
 WAV="$RUN/rec.wav"
+CANCELLED="$RUN/cancelled.wav"
 LASTFILE="$RUN/last.txt"
 HISTORY="$BASE/history.jsonl"
 TRANSCRIPTS="$BASE/transcripts"
@@ -67,7 +68,7 @@ PY
   printf '### %s\n%s\n\n' "$(date +%H:%M:%S)" "$1" >> "$TRANSCRIPTS/$day.md"
   if [ "$KEEP_AUDIO" = "1" ]; then
     mkdir -p "$AUDIO_ARCHIVE"
-    cp -f "$WAV" "$AUDIO_ARCHIVE/$(date +%Y-%m-%d_%H-%M-%S).wav"
+    cp -f "${CURRENT_WAV:-$WAV}" "$AUDIO_ARCHIVE/$(date +%Y-%m-%d_%H-%M-%S).wav"
   fi
 }
 
@@ -78,7 +79,12 @@ stop_and_transcribe() {
   while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i+1)); done
   kill -KILL "$pid" 2>/dev/null
   rm -f "$PIDFILE"
+  deliver_wav "$WAV"
+}
 
+deliver_wav() { # deliver_wav <path> — transcribe, save, copy, paste
+  local WAV="$1"
+  CURRENT_WAV="$WAV"
   if [ ! -s "$WAV" ]; then notify "Dictare" "Nu s-a înregistrat nimic."; exit 0; fi
 
   notify "⏳ Transcriu…" ""
@@ -133,7 +139,18 @@ case "${1:-toggle}" in
   start)  recording || start_recording ;;
   stop)   recording && stop_and_transcribe ;;
   cancel) if recording; then kill -KILL "$(cat "$PIDFILE")" 2>/dev/null
-            rm -f "$PIDFILE" "$WAV"; notify "Dictare" "Anulat."; fi ;;
+            rm -f "$PIDFILE"
+            # Keep the audio: an accidental abort must stay recoverable.
+            [ -s "$WAV" ] && mv -f "$WAV" "$CANCELLED"
+            notify "Dictare" "Anulat — 'dictare redo' îl procesează."; fi ;;
+  redo)   newest=""
+          for f in "$CANCELLED" "$WAV"; do
+            [ -s "$f" ] || continue
+            if [ -z "$newest" ] || [ "$f" -nt "$newest" ]; then newest="$f"; fi
+          done
+          [ -n "$newest" ] || { echo "nicio înregistrare de reprocesat" >&2; exit 1; }
+          echo "reprocesez $newest"
+          deliver_wav "$newest" ;;
   status) if recording; then echo "recording"
           else curl -s --max-time 3 "http://127.0.0.1:$PORT/health" || echo "daemon down"; fi ;;
   last)   cat "$LASTFILE" 2>/dev/null ;;
@@ -142,5 +159,5 @@ rows=[json.loads(l) for l in open(sys.argv[1],encoding="utf-8") if l.strip()]
 for r in rows[-int(sys.argv[2]):]: print(r["ts"], "", r["text"])' "$HISTORY" "${2:-20}" 2>/dev/null ;;
   today)  cat "$TRANSCRIPTS/$(date +%Y-%m-%d).md" 2>/dev/null ;;
   selftest) selftest ;;
-  *) echo "usage: dictare {toggle|start|stop|cancel|status|last|history [n]|today|selftest}" >&2; exit 2 ;;
+  *) echo "usage: dictare {toggle|start|stop|cancel|status|last|history [n]|today|redo|selftest}" >&2; exit 2 ;;
 esac
